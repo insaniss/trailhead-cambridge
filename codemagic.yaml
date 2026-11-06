@@ -55,20 +55,38 @@ workflows:
     environment:
       xcode: latest
     scripts:
-      - name: Install XcodeGen (generates the .xcodeproj — no Mac needed locally)
+      - name: Locate Swift project, generate, build unsigned app, and package IPA
         script: |
+          set -e
+          echo "Codemagic build directory: $CM_BUILD_DIR"
+          cd "$CM_BUILD_DIR"
+          echo "Repository layout (directories, max depth 3):"
+          find . -maxdepth 3 -type d -print | sort
+
+          # Do not assume the Swift project is at ./swift in the GitHub repo.
+          # Find XcodeGen's project.yml wherever Artur's upload placed it.
+          SPEC_PATH=$(find "$CM_BUILD_DIR" -name project.yml -type f | head -n 1)
+          if [ -z "$SPEC_PATH" ]; then
+            echo "ERROR: project.yml was not found anywhere in the repository."
+            echo "Files found (max depth 4):"
+            find "$CM_BUILD_DIR" -maxdepth 4 -type f -print | sort
+            exit 1
+          fi
+
+          PROJECT_DIR=$(dirname "$SPEC_PATH")
+          echo "Found XcodeGen spec: $SPEC_PATH"
+          echo "Building from project directory: $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+          ls -la
+
           if ! command -v xcodegen >/dev/null 2>&1; then
             brew install xcodegen
           fi
           xcodegen --version
-      - name: Generate the Xcode project from swift/project.yml
-        script: |
-          cd swift
           xcodegen generate
+          test -d TrailheadCambridge.xcodeproj
           ls -la TrailheadCambridge.xcodeproj
-      - name: Build the app (unsigned, generic iOS device)
-        script: |
-          cd swift
+
           xcodebuild build \
             -project TrailheadCambridge.xcodeproj \
             -scheme TrailheadCambridge \
@@ -78,19 +96,22 @@ workflows:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_IDENTITY=""
-      - name: Package the .app as an unsigned .ipa (Payload zip)
-        script: |
-          cd swift
+
           APP_PATH=$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: xcodebuild finished but no .app was found."
+            exit 1
+          fi
           echo "Packaging $APP_PATH"
           rm -rf Payload TrailheadCambridge-unsigned.ipa
           mkdir Payload
           cp -R "$APP_PATH" Payload/
           zip -qry TrailheadCambridge-unsigned.ipa Payload
-          ls -lh TrailheadCambridge-unsigned.ipa
+          cp TrailheadCambridge-unsigned.ipa "$CM_BUILD_DIR/TrailheadCambridge-unsigned.ipa"
+          ls -lh "$CM_BUILD_DIR/TrailheadCambridge-unsigned.ipa"
     artifacts:
-      - swift/TrailheadCambridge-unsigned.ipa
-      - swift/build/DerivedData/Logs/**/*.log
+      - TrailheadCambridge-unsigned.ipa
+      - "**/build/DerivedData/Logs/**/*.log"
 
   # ==========================================================================
   # FUTURE / UPGRADE — requires the PAID Apple Developer account
