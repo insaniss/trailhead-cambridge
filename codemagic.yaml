@@ -55,29 +55,49 @@ workflows:
     environment:
       xcode: latest
     scripts:
-      - name: Locate Swift project, generate, build unsigned app, and package IPA
+      - name: Stage Swift project in a clean layout, generate, build, and package IPA
         script: |
           set -e
           echo "Codemagic build directory: $CM_BUILD_DIR"
           cd "$CM_BUILD_DIR"
-          echo "Repository layout (directories, max depth 3):"
-          find . -maxdepth 3 -type d -print | sort
+          echo "Key files in the repository:"
+          find . \( -name project.yml -o -name TrailheadCambridgeApp.swift -o -name Info.plist -o -name trails.json \) -type f -print | sort
 
-          # Do not assume the Swift project is at ./swift in the GitHub repo.
-          # Find XcodeGen's project.yml wherever Artur's upload placed it.
-          SPEC_PATH=$(find "$CM_BUILD_DIR" -name project.yml -type f | head -n 1)
-          if [ -z "$SPEC_PATH" ]; then
-            echo "ERROR: project.yml was not found anywhere in the repository."
-            echo "Files found (max depth 4):"
-            find "$CM_BUILD_DIR" -maxdepth 4 -type f -print | sort
+          # Find the app entry-point file wherever the GitHub upload placed it.
+          # Its parent folder is the TrailheadCambridge source directory.
+          APP_FILE=$(find "$CM_BUILD_DIR" -name TrailheadCambridgeApp.swift -type f | head -n 1)
+          if [ -z "$APP_FILE" ]; then
+            echo "ERROR: TrailheadCambridgeApp.swift was not found anywhere in the repository."
+            find "$CM_BUILD_DIR" -maxdepth 5 -type f -print | sort
             exit 1
           fi
+          SOURCE_DIR=$(dirname "$APP_FILE")
+          echo "App source directory: $SOURCE_DIR"
 
-          PROJECT_DIR=$(dirname "$SPEC_PATH")
-          echo "Found XcodeGen spec: $SPEC_PATH"
-          echo "Building from project directory: $PROJECT_DIR"
-          cd "$PROJECT_DIR"
+          # Prefer the project.yml sitting next to the source directory
+          # (the intended layout); otherwise use any project.yml in the repo.
+          SPEC_PATH="$(dirname "$SOURCE_DIR")/project.yml"
+          if [ ! -f "$SPEC_PATH" ]; then
+            SPEC_PATH=$(find "$CM_BUILD_DIR" -name project.yml -type f | head -n 1)
+          fi
+          if [ -z "$SPEC_PATH" ] || [ ! -f "$SPEC_PATH" ]; then
+            echo "ERROR: project.yml was not found anywhere in the repository."
+            exit 1
+          fi
+          echo "XcodeGen spec: $SPEC_PATH"
+
+          # Stage a clean copy in the exact layout XcodeGen expects:
+          #   <stage>/project.yml
+          #   <stage>/TrailheadCambridge/<sources>
+          # This makes the build independent of how the repo itself is arranged.
+          STAGE_DIR="$HOME/trailhead-build"
+          rm -rf "$STAGE_DIR"
+          mkdir -p "$STAGE_DIR"
+          cp "$SPEC_PATH" "$STAGE_DIR/project.yml"
+          cp -R "$SOURCE_DIR" "$STAGE_DIR/TrailheadCambridge"
+          cd "$STAGE_DIR"
           ls -la
+          ls -la TrailheadCambridge
 
           if ! command -v xcodegen >/dev/null 2>&1; then
             brew install xcodegen
@@ -111,7 +131,6 @@ workflows:
           ls -lh "$CM_BUILD_DIR/TrailheadCambridge-unsigned.ipa"
     artifacts:
       - TrailheadCambridge-unsigned.ipa
-      - "**/build/DerivedData/Logs/**/*.log"
 
   # ==========================================================================
   # FUTURE / UPGRADE — requires the PAID Apple Developer account
