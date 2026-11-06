@@ -1,0 +1,47 @@
+# XcodeGen project spec — Trailhead Cambridge (native Swift test app)
+#
+# There is NO hand-written .xcodeproj in this repo: nobody on this project
+# has a Mac. Codemagic (cloud Mac) runs `xcodegen generate` from this file
+# on every build, then builds with xcodebuild. XcodeGen is preinstalled or
+# installed via Homebrew in the CI workflow (see ../codemagic.yaml,
+# workflow `ios-sideload-unsigned`).
+#
+# If Artur ever gets access to a Mac, the same flow works locally:
+#   brew install xcodegen && xcodegen generate && open TrailheadCambridge.xcodeproj
+
+name: TrailheadCambridge
+options:
+  # PLACEHOLDER bundle ID prefix — Artur can change com.artur.hikingapp
+  # before any App Store Connect record exists; see ../README.md.
+  bundleIdPrefix: com.artur
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1" # iPhone only for the test app
+
+targets:
+  TrailheadCambridge:
+    type: application
+    platform: iOS
+    sources:
+      - path: TrailheadCambridge
+    info:
+      path: TrailheadCambridge/Info.plist
+    settings:
+      base:
+        # PLACEHOLDER — must match the bundle ID used at signing time.
+        # For the free AltStore route it only needs to be unique per Apple ID.
+        PRODUCT_BUNDLE_IDENTIFIER: com.artur.hikingapp
+        INFOPLIST_FILE: TrailheadCambridge/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: "" # no app icon yet in the free test build
+        # Signing is OFF for the sideload build (AltStore signs on install).
+        # The future TestFlight workflow overrides these.
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO

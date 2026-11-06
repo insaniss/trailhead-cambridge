@@ -1,0 +1,175 @@
+# =============================================================================
+# Codemagic build pipeline — Trailhead Cambridge (hiking app)
+#
+# Mac-free flow: this repo is edited on a Windows PC / Linux (no Mac anywhere).
+# Codemagic provides the Mac. On every run it:
+#   1. installs the npm dependencies,
+#   2. GENERATES the ios/ Xcode project in CI (the ios/ folder is deliberately
+#      NOT committed to the repo — there is no Mac to generate or maintain it),
+#   3. syncs the web app from www/ into the iOS project (Capacitor),
+#   4. signs the app automatically using the App Store Connect integration,
+#   5. builds the .ipa and publishes it to TestFlight.
+#
+# -----------------------------------------------------------------------------
+# VALUES ARTUR MUST SUPPLY / CHECK BEFORE THE FIRST BUILD
+# -----------------------------------------------------------------------------
+# [1] App Store Connect integration name.
+#     In Codemagic: Teams -> Integrations -> App Store Connect -> connect using
+#     an App Store Connect API key, and give the integration a name.
+#     Put that EXACT name in `integrations.app_store_connect` below
+#     (currently the placeholder "App Store Connect").
+#
+# [2] Bundle ID:  com.artur.hikingapp
+#     This is a PLACEHOLDER. It must be IDENTICAL in three places:
+#       - capacitor.config.json  ("appId")
+#       - codemagic.yaml         (BUNDLE_ID below)
+#       - the app record Artur creates in App Store Connect
+#     Artur can change it before the App Store Connect record is created;
+#     afterwards the bundle ID of that record cannot be changed.
+#
+# [3] APP_STORE_APP_ID: the numeric Apple ID of the app record
+#     (App Store Connect -> My Apps -> <app> -> App Information -> Apple ID).
+#     Replace "0000000000" below with that number. It is only used to fetch the
+#     latest TestFlight build number so each build increments automatically.
+#
+# [4] Apple Developer Team / account: signing certificates and provisioning
+#     profiles are created and managed automatically by Codemagic through the
+#     App Store Connect integration in [1] — no manual certificate files and
+#     no Mac are needed. Artur only has to be enrolled in the Apple Developer
+#     Program and have accepted the current agreements in App Store Connect.
+# =============================================================================
+
+workflows:
+  # ==========================================================================
+  # PRIMARY (decided 2026-11-06): free native Swift sideload build.
+  # Builds the SwiftUI app in swift/ into an UNSIGNED .ipa. Artur signs and
+  # installs it himself with AltStore + his free Apple ID (7-day refresh).
+  # NOTHING for Artur to supply for this workflow — no accounts beyond a free
+  # Codemagic account, no keys, no enrollment. Just run it and download the
+  # TrailheadCambridge-unsigned.ipa artifact.
+  # ==========================================================================
+  ios-sideload-unsigned:
+    name: iOS - Sideload unsigned .ipa (native Swift, free AltStore route)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+    scripts:
+      - name: Install XcodeGen (generates the .xcodeproj — no Mac needed locally)
+        script: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+      - name: Generate the Xcode project from swift/project.yml
+        script: |
+          cd swift
+          xcodegen generate
+          ls -la TrailheadCambridge.xcodeproj
+      - name: Build the app (unsigned, generic iOS device)
+        script: |
+          cd swift
+          xcodebuild build \
+            -project TrailheadCambridge.xcodeproj \
+            -scheme TrailheadCambridge \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_IDENTITY=""
+      - name: Package the .app as an unsigned .ipa (Payload zip)
+        script: |
+          cd swift
+          APP_PATH=$(find build/DerivedData/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          echo "Packaging $APP_PATH"
+          rm -rf Payload TrailheadCambridge-unsigned.ipa
+          mkdir Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry TrailheadCambridge-unsigned.ipa Payload
+          ls -lh TrailheadCambridge-unsigned.ipa
+    artifacts:
+      - swift/TrailheadCambridge-unsigned.ipa
+      - swift/build/DerivedData/Logs/**/*.log
+
+  # ==========================================================================
+  # FUTURE / UPGRADE — requires the PAID Apple Developer account
+  # (CA$118.99/yr). This is the OLD Capacitor-wrap TestFlight workflow, kept
+  # as a fallback. It is NOT needed for the free Swift route above, and its
+  # [1]-[4] values only matter if/when Artur enrolls.
+  # ==========================================================================
+  ios-testflight:
+    name: "[FUTURE - paid Developer account] iOS - TestFlight (Capacitor wrap, fallback)"
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      # [1] ARTUR: replace with the exact name of your App Store Connect
+      # integration in Codemagic if you named it something else.
+      app_store_connect: App Store Connect
+    environment:
+      vars:
+        # [2] ARTUR: must match "appId" in capacitor.config.json and the
+        # bundle ID of the App Store Connect app record.
+        BUNDLE_ID: "com.artur.hikingapp"
+        # [3] ARTUR: replace with the numeric Apple ID of the app record.
+        APP_STORE_APP_ID: "0000000000"
+        XCODE_PROJECT: "ios/App/App.xcodeproj"
+        XCODE_SCHEME: "App"
+      node: 20
+      xcode: latest
+      cocoapods: default
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm install
+      - name: Generate the iOS platform in CI (ios/ is never committed)
+        script: |
+          if [ ! -d "ios" ]; then
+            npx cap add ios
+          fi
+      - name: Sync web assets and config into the iOS project
+        script: |
+          npx cap sync ios
+      - name: Set up keychain for code signing
+        script: |
+          keychain initialize
+      - name: Fetch or create signing files (automatic code signing)
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      - name: Add signing certificates to keychain
+        script: |
+          keychain add-certificates
+      - name: Apply provisioning profiles to the Xcode project
+        script: |
+          xcode-project use-profiles
+      - name: Increment build number from latest TestFlight build
+        script: |
+          cd ios/App
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APP_ID")
+          agvtool new-version -all $(($LATEST_BUILD_NUMBER + 1))
+      - name: Build the .ipa
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - build/ios/archive/*.xcarchive
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        # Optional: once Artur creates a tester group in App Store Connect ->
+        # TestFlight, uncomment and name it here so builds go straight to it.
+        # beta_groups:
+        #   - Trail Testers

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>Trailhead Cambridge</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Trailhead Cambridge shows where you are on the trail and measures your hike while you walk.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Trailhead Cambridge keeps tracking your hike with the phone locked in your pocket. Location is only recorded while a hike is tracking, and it never leaves your phone in this test build.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Trailhead Cambridge uses the motion sensors (pedometer and barometer) to measure your steps, distance and climbing alongside GPS, so the two can be compared.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string></string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+</dict>
+</plist>
